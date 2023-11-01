@@ -1,0 +1,314 @@
+## 1. Load Data and packages
+```{r}
+data = read.csv("../cs699/project_dataset.csv")
+set.seed(123)
+library(FSelector)
+library(Boruta)
+library(RWeka)
+library(caret)
+library(rsample)
+library(clue)
+library(modeest)
+library(DMwR)
+
+## Use more cores to accelerate training
+library(doParallel)
+
+# Set up a parallel backend using multiple cores
+cl <- makeCluster(detectCores())
+
+# Register the parallel backend
+registerDoParallel(cl)
+
+#http://cran.nexr.com/web/packages/DMwR/DMwR.pdata
+#install dependencies first: ROCR, zoo, xts, quantmod
+#then, install package tar.gz. file downloaded into your local machine
+#download link: https://cran.r-project.org/src/contrib/Archive/DMwR/
+#Download 'DMwR_0.4.1.tar.gz'
+
+#Before
+#  0    1 
+#3817 1130 
+
+#After
+#   0    1  
+# 4520 3390 
+```
+
+##2. Data Cleanring
+```{r}
+sum(is.na(data))
+```
+No missing value found
+
+##3 nearZeroVar
+```{r}
+##if use nearZ, we left 124
+##if use boruta, we have 88
+##if use nearZ+boruta, we have 60
+
+nonZ = nearZeroVar(data, names = TRUE)
+data = data[, !(names(data) %in% nonZ)]
+
+```
+These attributes with zero or near zero variance offers no contribution in improving our model. Therefore, they will be removed prior the next step.
+
+##4 collinearity
+```{r}
+corr = cor(data[c(1:203)]) 
+# Found many missing values. For example, the corr of v2077 and every other attribute is NA. Because every data entry of v2077 is 999 while others are 1,2, or 3. 
+# Therefore, I let 
+#corr[is.na(corr)] = 0
+# Since attributes in our dataset are categorical but represented as numerical values.
+# Using correlation does not make sense.
+highCorr = findCorrelation(corr, cutoff = 0.7, names = TRUE)
+length(highCorr)
+highCorr
+
+##feature selection
+out = sapply(data, class)
+```
+
+## 5. Boruta
+```{r}
+set.seed(123)
+boruta<- Boruta(data$o_bullied~.,data=data)
+borutaImp = getSelectedAttributes(boruta, withTentative = TRUE)
+borutaImp
+boruta
+
+# Boruta returns 64 confirmed important attributes and 
+# 22 tentative attributes. We decided to go with Boruta.
+data = data[borutaImp]
+```
+
+##6. information gain
+```{r}
+df <- as.data.frame(unclass(data), stringsAsFactors = TRUE)
+df$o_bullied <- factor(df$o_bullied)
+infogain <- InfoGainAttributeEval(o_bullied ~ . , data = df)
+sorted.features <- sort(infogain, decreasing = TRUE)
+sorted.features[1:10]
+```
+
+##7 PCA
+```{r}
+data_pca = data
+data_pca$o_bullied = factor(data_pca$o_bullied)
+sapply(data_pca, class)
+
+set.seed(123)
+split = initial_split(data_pca, prop = 0.66, strata = o_bullied)
+training = training(split)
+test = testing(split)
+
+model = J48(o_bullied ~., data = training)
+predicted = data.frame(predict(model,test[-204]))
+colnames(predicted)[1] = "predicted"
+head(predicted)
+cm = table(predicted$predicted, test$o_bullied)
+cm
+round((sum(diag(cm))/sum(cm))*100,3)
+pc = prcomp(training[,-204], center = TRUE)
+summary(pc)
+```
+## 8 cfs
+```{r}
+subset <- cfs(o_bullied ~., data)
+cfs <- as.simple.formula(subset, "o_bullied")
+cfs
+```
+
+##9 Data Exploration
+```{r}
+table(sapply(data,class)) # Find that all attribute types are "integer"
+
+nrow(data)
+table(data$o_bullied)
+
+library(FSelector)
+# CFS:
+subset <- cfs(o_bullied ~., data)
+cfs <- as.simple.formula(subset, "o_bullied")
+cfs
+# For data exploration - ploting the pair-wise correlations 
+library(GGally)
+attributes <- all.vars(cfs)
+df_plot <- data[attributes]
+ggpairs(df_plot, aes(o_bullied, alpha = 0.5),            
+        upper = list(continuous = wrap("cor", size = 3.0)))
+
+# Find the correlation of all attributes in the df_plot
+corr_matrix <- cor(df_plot)
+corr_matrix
+# Plot:
+library(ggcorrplot)
+ggcorrplot(corr_matrix, method ="square")
+```
+
+## 10 Split Data
+```{r}
+colnames(data)[which(names(data) == "o_bullied")] <- "class"
+data$class <- ifelse(data$class ==  0, "N", "Y")
+data$class <- as.factor(data$class)
+
+set.seed(123)
+split <- initial_split(data, prop = 0.8, strata = class)
+train <- training(split)
+test <- testing(split)
+```
+
+##11 Imbalance in train data
+```{r}
+set.seed(123)
+summary(train$class) # N 3053 Y 904
+train = DMwR::SMOTE(class~., train, k = 3, perc.over = 150)
+summary(train$class) # N 1808 Y 1808
+
+yClass = which(train$class == 'Y')
+nClass = which(train$class == 'N')
+
+nsample = length(yClass)
+pick_y = sample(yClass, nsample)
+pick_n = sample(nClass, nsample)
+train = train[c(pick_n,pick_y),]
+```
+
+
+## 11 Gradient Boost Machine
+```{r}
+
+ctrl_gbm <- trainControl(method = "CV",
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE,
+                     savePredictions = TRUE)
+
+gbmGrid <- expand.grid(interaction.depth = c(5,7),
+                       n.trees =c(1000,1250,1500),
+                       shrinkage = c(0.01,0.02, 0.03),
+                       n.minobsinnode = c(2,4,6))
+
+set.seed(123)
+gbmFit <- caret::train(x = train[, -86], 
+                y = train$class,
+                method = "gbm",
+                tuneGrid = gbmGrid,
+                metric = "ROC",
+                verbose = T,
+                trControl = ctrl_gbm,
+                )
+gbmFit
+plot(gbmFit)
+
+pred <- predict(gbmFit, test)
+cm <- caret::confusionMatrix(pred, test$class)
+cm
+
+```
+
+```{r}
+
+# Class 0
+tp = cm$table[1,1]
+fp = cm$table[1,2]
+tn = cm$table[2,2]
+fn = cm$table[2,1]
+
+# Class 1
+tp = cm$table[2,2]
+fp = cm$table[2,1]
+tn = cm$table[1,1]
+fn = cm$table[1,2]
+
+calculate_measures <- function(tp, fp, tn, fn){
+  tpr = tp / (tp + fn)
+  fpr = fp / (fp + tn)
+  tnr = tn / (fp + tn)
+  fnr = fn / (fn + tp)
+  precision = tp / (tp + fp)
+  recall = tpr
+  f_measure <- (2 * precision * recall) / (precision + recall)
+  mcc <- (tp*tn - fp*fn)/(sqrt(tp+fp)*sqrt(tp+fn)*sqrt(tn+fp)*sqrt(tn+fn))
+  total = (tp + fn + fp + tn)
+  p_o = (tp + tn) / total
+  p_e1 = ((tp + fn) / total) * ((tp + fp) / total)
+  p_e2 = ((fp + tn) / total) * ((fn + tn) / total)
+  p_e = p_e1 + p_e2
+  k = (p_o - p_e) / (1 - p_e)
+  
+  measures <- c('TPR', 'FPR', 'TNR', 'FNR', 'Precision', 'Recall', 'F-measure', 'MCC', 'Kappa')
+  values <- c(tpr, fpr, tnr, fnr, precision, recall, f_measure, mcc, k)
+  measure.df <- data.frame(measures, values)
+  return (measure.df)
+}
+
+performance_measures = calculate_measures(tp, fp, tn, fn)
+performance_measures
+```
+##12 SVM
+```{r}
+
+set.seed(31)
+train_control <- trainControl(method = "repeatedcv", number = 10, repeats = 5, summaryFunction = defaultSummary)
+svmGrid <-  expand.grid(sigma = seq(0.1, 0.4, by = 0.05), C = seq(1.0, 2.0, by = 0.1))
+
+model <- caret::train(class ~ ., data = train, method = "svmRadial", preProc = c("center", "scale"),trControl = train_control, tuneGrid = svmGrid)
+model
+plot(model)
+
+pred <- predict(model, test)
+cm <- caret::confusionMatrix(pred,test$class)
+cm
+```
+
+```{r}
+ctrl_xgb <- trainControl(method = "CV",
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE,
+                     savePredictions = TRUE)
+
+xgbGrid <- expand.grid(nrounds = c(500,800,1000,1500),
+                       max_depth = c(10,15,20),
+                       min_child_weight = c(0.25,0.5, 0.75),
+                       eta = c(0.01, 0.05, 0.1),
+                       subsample = c(1,3,5),
+                       colsample_bytree = c(1,3,5),
+                       gamma = c(0,3,5)
+                       )
+
+set.seed(31)
+xgbFit <- caret::train(x = train[, -86], 
+                y = train$class,
+                method = "xgbTree",
+                tuneGrid = xbGrid,
+                metric = "ROC",
+                verbose = FALSE,
+                trControl = ctrl_xgb)
+xgbFit
+plot(xgbFit)
+
+pred <- predict(xgbFit, test)
+cm <- caret::confusionMatrix(pred, test$class)
+cm
+
+# nround 500 max_d 20, eta 0.1, gamma 3, colS 1, minC 0.25, subS 1
+# 554 66 
+# 210 160
+
+# nround 800 max_d 20, eta 0.01, gamma 3, colS 1, minC 0.25, subS 1
+#557 64
+#207 162
+#TPR 0.72 0.71
+
+```
+
+
+
+
+## Close cores usages
+```{r}
+stopCluster(cl)
+```
+
+
+

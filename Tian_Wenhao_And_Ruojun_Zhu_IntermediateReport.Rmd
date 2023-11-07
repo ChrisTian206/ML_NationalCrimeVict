@@ -73,7 +73,7 @@ out = sapply(data, class)
 ```{r}
 set.seed(123)
 boruta<- Boruta(data$o_bullied~.,data=data)
-borutaImp = getSelectedAttributes(boruta, withTentative = F)
+borutaImp = getSelectedAttributes(boruta, withTentative = T)
 borutaImp
 boruta
 
@@ -168,17 +168,9 @@ test <- testing(split)
 set.seed(123)
 summary(train$class) # N 3053 Y 904
 train = DMwR::SMOTE(class~., train, k=5, perc.over = 80)
+train[,-125] = lapply(train, as.integer)
 summary(train$class) # N 2892 Y 2712
 sum(is.na(train)) # 0
-
-#Approach 2, undersampling
-yClass = which(train$class == 'Y')
-nClass = which(train$class == 'N')
-
-nsample = length(yClass)
-pick_y = sample(yClass, nsample)
-pick_n = sample(nClass, nsample)
-train = train[c(pick_n,pick_y),]
 ```
 
 
@@ -190,13 +182,12 @@ ctrl_gbm <- trainControl(method = "CV",
                      classProbs = TRUE,
                      savePredictions = TRUE)
 
-gbmGrid <- expand.grid(interaction.depth = c(15),
-                       n.trees =c(800),
-                       shrinkage = c(0.08),
+gbmGrid <- expand.grid(interaction.depth = c(18),
+                       n.trees =c(300),
+                       shrinkage = c(0.02), 
                        n.minobsinnode = c(5))
 
 set.seed(123)
-
 gbmFit <- caret::train(x = train[, -125], 
                 y = train$class,
                 method = "gbm",
@@ -375,6 +366,31 @@ Prediction   N   Y
 Prediction   N   Y
          N 594  76
          Y 170 150
+         
+# n.trees = 700, interaction.depth = 15, shrinkage = 0.05 and n.minobsinnode = 5.
+         #somehow not able to reproduce the result...
+         Reference
+Prediction   N   Y
+         N 601  75
+         Y 163 151
+         
+# n.trees = 250, interaction.depth = 15, shrinkage = 0.1 and n.minobsinnode = 4.
+         #!!! pass min requirement !!!
+         Reference
+Prediction   N   Y
+         N 574  79
+         Y 190 147
+         
+# n.trees = 325, interaction.depth = 12, shrinkage = 0.02 and n.minobsinnode = 5.
+         Reference
+Prediction   N   Y
+         N 586  76
+         Y 178 150
+# n.trees = 300, interaction.depth = 18, shrinkage = 0.02 and n.minobsinnode = 5.
+         Reference
+Prediction   N   Y
+         N 591  74
+         Y 173 152
 ```
 
 ```{r}
@@ -449,43 +465,174 @@ Prediction   N   Y
 
 ##13 XGBTree
 ```{r}
+
 ctrl_xgb <- trainControl(method = "CV",
                      summaryFunction = twoClassSummary,
                      classProbs = TRUE,
                      savePredictions = TRUE)
 
-xgbGrid <- expand.grid(nrounds = c(500), 
-                       max_depth = c(7),
-                       min_child_weight = c(0.1),
-                       eta = c(0.25),
+xgbGrid <- expand.grid(nrounds = c(375), 
+                       max_depth = c(10),
+                       min_child_weight = c(5),
+                       eta = c(0.3),
                        subsample = 1,
                        colsample_bytree = 1,
                        gamma = c(0)
                        )
 
-set.seed(31)
-xgbFit <- caret::train(x = train[, -125], 
+set.seed(123)
+xgbFit <- caret::train(x = train[, -86], 
                 y = train$class,
                 method = "xgbTree",
                 tuneGrid = xgbGrid,
-                metric = "ROC",
+                metric = "Spec",
                 verbose = FALSE,
                 trControl = ctrl_xgb)
 xgbFit
-plot(xgbFit)
-
+set.seed(123)
 pred <- predict(xgbFit, test)
 cm <- caret::confusionMatrix(pred, test$class)
 cm
 
-       
+plot(xgbFit)
+
 #N 1446 Y 1627. nrounds = 500, max_depth = 7, eta = 0.25, gamma = 0, colsample_bytree = 1, min_child_weight = 0.1 and subsample = 1.
 #train = DMwR::SMOTE(class~., train, k=5, perc.over = 80)
-
          Reference
 Prediction   N   Y
          N 600  78
          Y 164 148
+         #!!!!!! Not able to replicate !!!!!!!
+         
+#N 1446 Y 1627. nrounds = 250, max_depth = 10, eta = 0.3, gamma = 0, colsample_bytree = 1, min_child_weight = 0.3 and subsample = 1.      
+         Reference
+Prediction   N   Y
+         N 598  81
+         Y 166 145
+#N 1446 Y 1627. nrounds = 300, max_depth = 10, eta = 0.3, gamma = 0, colsample_bytree = 1, min_child_weight = 0.3 and subsample = 1.  
+         Reference
+Prediction   N   Y
+         N 594  80
+         Y 170 146
+         
+#N 1446 Y 1627. nrounds = 300, max_depth = 15, eta = 0.3, gamma = 0, colsample_bytree = 1, min_child_weight = 0.3 and subsample = 1. 
+         Reference
+Prediction   N   Y
+         N 590  90
+         Y 174 136
+#N 1446 Y 1627. nrounds = 300, max_depth = 8, eta = 0.3, gamma = 0, colsample_bytree = 1, min_child_weight = 0.3 and subsample = 1. 
+         Reference
+Prediction   N   Y
+         N 603  88
+         Y 161 138
+#N 1446 Y 1627. nrounds = 300, max_depth = 10, eta = 0.3, gamma = 0, colsample_bytree = 1, min_child_weight = 0.3 and subsample = 1. 
+         Reference
+Prediction   N   Y
+         N 594  80
+         Y 170 146
+        #change eta to 0.1 
+         Reference
+Prediction   N   Y
+         N 603  94
+         Y 161 132
+         #change eta to 0.4
+         Reference
+Prediction   N   Y
+         N 597  80
+         Y 167 146
+              #eta = 0.4, lower nround to 275
+                       Reference
+              Prediction   N   Y
+                        N 597  81
+                        Y 167 145
+              #same exact cm when raise nround  to 350
+                        
+#N 1446 Y 1627. nrounds = 500, max_depth = 15, eta = 0.3, gamma = 0, colsample_bytree = 1, min_child_weight = 0.1 and subsample = 1. 
+          Reference
+Prediction   N   Y
+         N 596  80
+         Y 168 146
+#N 1446 Y 1627. nrounds = 600, max_depth = 15, eta = 0.2, gamma = 0, colsample_bytree = 1, min_child_weight = 0.1 and subsample = 1. 
+         Reference
+Prediction   N   Y
+         N 595  83
+         Y 169 143
+         #change min_child_weight = 0.3
+         Reference
+Prediction   N   Y
+         N 596  84
+         Y 168 142
+         #min_child_weight = 0.3, change depth to 20
+         Reference
+Prediction   N   Y
+         N 596  82
+         Y 168 144
+         #lower eta, TNR lowered'
+#nrounds = 600, max_depth = 20, eta = 0.5, gamma = 0, colsample_bytree = 1, min_child_weight = 0.3 and subsample = 1.
+         Reference
+Prediction   N   Y
+         N 589  81
+         Y 175 145
+         
+#nrounds = 250, max_depth = 10, eta = 0.3, gamma = 0, colsample_bytree = 1, min_child_weight = 0.3 and subsample = 1.
+         Reference
+Prediction   N   Y
+         N 581  80
+         Y 183 146
+         
+#Deep Tree Models
+#nrounds = 1500, max_depth = 15, eta = 0.1, gamma = 0, colsample_bytree = 1, min_child_weight = 0.3 and subsample = 1.
+         Reference
+Prediction   N   Y
+         N 600  83
+         Y 164 143
+#nrounds = 1250, max_depth = 10, eta = 0.3, gamma = 0, colsample_bytree = 1, min_child_weight = 0.3 and subsample = 1.
+         ##Just pass minimum
+         Reference
+Prediction   N   Y
+         N 578  79
+         Y 186 147
+#nrounds = 1250, max_depth = 15, eta = 0.15, gamma = 0, colsample_bytree = 1, min_child_weight = 0.3 and subsample = 1.
+         Reference
+Prediction   N   Y
+         N 581  80
+         Y 183 146
+#nrounds = 1000, max_depth = 15, eta = 0.15, gamma = 0, colsample_bytree = 1, min_child_weight = 0.3 and subsample = 1.
+         Reference
+Prediction   N   Y
+         N 580  81
+         Y 184 145
+
+#nrounds = 1000, max_depth = 10, eta = 0.2, gamma = 0, colsample_bytree = 1, min_child_weight = 0.3 and subsample = 1.
+         Reference
+Prediction   N   Y
+         N 575  78
+         Y 189 148
+#nrounds = 1500, max_depth = 6, eta = 0.2, gamma = 0, colsample_bytree = 1, min_child_weight = 0.3 and subsample = 1.
+         Reference
+Prediction   N   Y
+         N 581  85
+         Y 183 141
+         
+         
+    #Best So Far
+#nrounds = 1000, max_depth = 18, eta = 0.15, gamma = 0, colsample_bytree = 1, min_child_weight = 0.3 and subsample = 1.
+         Reference
+Prediction   N   Y
+         N 584  77
+         Y 180 149
+#nrounds = 250, max_depth = 17, eta = 0.35, gamma = 0, colsample_bytree = 1, min_child_weight = 0.3 and subsample = 1.
+         Reference
+Prediction   N   Y
+         N 573  77
+         Y 191 149 65%
+
+         #Boruta 64 attrs
+#nrounds = 250, max_depth = 17, eta = 0.35, gamma = 0, colsample_bytree = 1, min_child_weight = 0.3 and subsample = 1.
+         Reference
+Prediction   N   Y
+         N 520  71
+         Y 244 155 68%
 ```
 
 ## RF
@@ -495,13 +642,13 @@ ctrl <- trainControl(method = "CV",
                      classProbs = TRUE,
                      savePredictions = TRUE)
 
-mtryValues <- c(2,3,4,6)
+mtryValues <- c(2)
 
-set.seed(31)
+set.seed(123)
 rfFit <- caret::train(x = train[, -125], 
                y = train$class,
                method = "rf",
-               ntree = 100,
+               ntree = 300,
                tuneGrid = data.frame(mtry = mtryValues),
                importance = TRUE,
                metric = "ROC",
@@ -512,6 +659,8 @@ plot(rfFit)
 pred <- predict(rfFit, test)
 cm <- caret::confusionMatrix(pred, test$class)
 cm
+
+#mtry 10 ntree 250 -> 145
 ```
 
 ```{r}

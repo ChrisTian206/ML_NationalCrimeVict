@@ -1,4 +1,4 @@
-# ML_NationalCrimeVict
+# Machine Learning with R: NationalCrimeVict 
 
 ## Data Description
 The data I am using is National Crime Victimization Survey: School Crime Supplement, 2013. This data is a survey that 
@@ -15,7 +15,8 @@ nearZeroVariants methods eliminates attributes that has zero or almost zero vari
 ### Boruta
 Boruta is a more complexed way to calculate the relavant of a attribute to the class attribute. Using this method, it returns 64 confirmed important attributes with 22 tentative attributes. In total, it suggests to use 86 attributes for model training.
 
-#### I decided to go with nearZeroVariants.
+#### Decision:
+Considering the amount of computing power is avaialable, I decide to go with nearZeroVariants method.
 
 ## Train and Test Split 
 

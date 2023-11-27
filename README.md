@@ -32,4 +32,9 @@ SMOTE algorithm generates synthetic data points based on KNN method. While setti
 
 #### Decision:
 I decide to use SMOTE as it provides more samples for the models to train.
+Train Data: 1808 Y 1808 N
+Test Data: 764 Y 226 N
+
+## Model Training
+### XGBoost
 

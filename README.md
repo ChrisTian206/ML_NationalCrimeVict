@@ -5,7 +5,7 @@ The data I am using is National Crime Victimization Survey: School Crime Supplem
 asked many students on whether they have been bullied along with many other questions.
 Data is provided to us pre-processed and cleansed. 
 There are 4947 observations and 204 attributes with the last attribute being the class attribute, o_bullied.
-The goal for is project is to train multiple machine learnign models that does binary classification, that is to predict is a student is bullied or not.
+The goal for is project is to train multiple machine learnign models that does binary classification, that is to predict is a student is o_bullied or not.
 
 ## Pre-processing
 Training a model with 4947 x 204 dataframe can be very expensive. Therefore, using pre-processing methods is neccessary. Here are the 2 pre-processing methods that I consider:
